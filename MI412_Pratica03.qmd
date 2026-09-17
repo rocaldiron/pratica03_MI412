@@ -1,0 +1,458 @@
+---
+title: "Prática 3: Comparação de K Amostras Independentes"
+subtitle: "ANOVA de um fator, ANOVA de Welch, Kruskal-Wallis e Mediana de Mood"
+author: "Rodrigo Caldiron"
+format: pdf
+lang: pt
+---
+
+```{r, message=FALSE}
+# BIBLIOTECAS UTILIZADAS
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(knitr)
+theme_set(theme_bw())
+```
+
+
+## Objetivo
+
+Neste laboratório, vamos comparar quatro procedimentos para o problema de **K amostras independentes**:
+
+- a **ANOVA de um fator**, na sua forma clássica;
+- a **ANOVA de Welch**, versão que não supõe variâncias iguais;
+- o **teste de Kruskal-Wallis**;
+- o **teste da Mediana de Mood**.
+
+O objetivo é entender:
+
+- qual característica das populações cada procedimento compara;
+- o que acontece quando normalidade, homocedasticidade e balanceamento falham;
+- como o **tamanho** (probabilidade de rejeitar $H_0$ quando ela é verdadeira) e o **poder** (probabilidade de rejeitar $H_0$ quando ela é falsa) de cada teste mudam com o cenário;
+- por que "não-paramétrico" não é sinônimo de "sem suposições" nem de "menos poder".
+
+Nesta prática, vocês devem escrever os próprios códigos em **R**. O foco, contudo, não é apenas programar: cada resultado precisa ser interpretado estatisticamente.
+
+## Revisão curta: o que cada procedimento compara?
+
+Considere $k$ populações independentes e amostras de tamanhos $n_1,\ldots,n_k$, com $N=\sum_i n_i$.
+
+### ANOVA de um fator
+
+A ANOVA clássica investiga
+$$
+H_0: \mu_1 = \mu_2 = \cdots = \mu_k
+\qquad \text{versus} \qquad
+H_1: \text{pelo menos uma média difere},
+$$
+comparando a variabilidade **entre** grupos com a variabilidade **dentro** dos grupos:
+$$
+F = \frac{\text{QM}_{\text{entre}}}{\text{QM}_{\text{dentro}}},
+\qquad
+\text{QM}_{\text{dentro}} = \frac{\sum_{i=1}^{k}(n_i-1)s_i^2}{N-k}.
+$$
+A distribuição nula $F_{k-1,\,N-k}$ depende de três suposições: observações independentes, erros normais e **variâncias iguais** nos $k$ grupos. Repare que $\text{QM}_{\text{dentro}}$ é uma estimativa **única e comum** da variância: todos os grupos são obrigados a contribuir para a mesma estimativa.
+
+### ANOVA de Welch
+
+A **ANOVA de Welch** é a adaptação da ANOVA de um fator para o caso em que as variâncias populacionais **não** são iguais. Ela não apareceu na Batalha 5, então vale entender a ideia antes de usá-la.
+
+O ponto de partida é exatamente o mesmo do teste t de Welch para duas amostras: se um grupo é muito mais variável que os outros, não faz sentido obrigá-lo a entrar em uma estimativa comum de variância. Em vez disso, cada grupo recebe um **peso** inversamente proporcional à sua própria variância estimada,
+$$
+w_i = \frac{n_i}{s_i^{2}}, \qquad W=\sum_{i=1}^{k} w_i ,
+$$
+de modo que grupos com muita variabilidade — ou com poucas observações — pesam menos na comparação. A média global simples é substituída por uma **média ponderada**
+$$
+\tilde{y} = \frac{1}{W}\sum_{i=1}^{k} w_i \,\bar{y}_i ,
+$$
+e a estatística compara os desvios $\bar{y}_i - \tilde{y}$ ponderados pelos mesmos pesos:
+$$
+F_W \;=\; \frac{\dfrac{1}{k-1}\displaystyle\sum_{i=1}^{k} w_i\,(\bar{y}_i-\tilde{y})^2}{1+2(k-2)\,\Lambda},
+\qquad
+\Lambda \;=\; \frac{1}{k^{2}-1}\sum_{i=1}^{k}\frac{\left(1-w_i/W\right)^{2}}{n_i-1}.
+$$
+
+A distribuição nula de $F_W$ não é exatamente uma $F$; usa-se a aproximação
+$$
+F_W \;\stackrel{\text{aprox.}}{\sim}\; F_{\,k-1,\;\nu_2},
+\qquad
+\nu_2 = \frac{1}{3\Lambda},
+$$
+em que $\nu_2$ é um número de graus de liberdade em geral **fracionário**, obtido por uma aproximação de Satterthwaite — a mesma ideia que produz graus de liberdade quebrados no teste t de Welch.
+
+Três observações importantes:
+
+1. A hipótese nula continua sendo $H_0: \mu_1=\cdots=\mu_k$. Welch é um procedimento **sobre médias**, assim como a ANOVA clássica.
+2. Quando as variâncias são de fato iguais, Welch perde muito pouco em relação à ANOVA clássica. Quando não são, ele costuma controlar o nível bem melhor, sobretudo com **grupos desbalanceados**.
+3. Welch **não** corrige assimetria nem caudas pesadas. Ele resolve um problema específico — variâncias desiguais — e apenas esse.
+
+Em R, basta trocar um argumento:
+
+```r
+oneway.test(y ~ grupo, data = dados, var.equal = TRUE)   # ANOVA clássica
+oneway.test(y ~ grupo, data = dados, var.equal = FALSE)  # ANOVA de Welch
+```
+
+### Teste de Kruskal-Wallis
+
+Kruskal-Wallis substitui as observações por seus **postos** no conjunto combinado das $N$ observações e compara a média dos postos entre os grupos:
+$$
+H = \frac{12}{N(N+1)}\sum_{i=1}^{k} n_i\left(\bar{R}_i - \frac{N+1}{2}\right)^{2},
+\qquad H \stackrel{\text{aprox.}}{\sim} \chi^{2}_{k-1}.
+$$
+Na sua formulação geral, a hipótese nula é que as $k$ **distribuições** são iguais. Para que a rejeição seja lida como diferença de **locação**, é preciso supor adicionalmente que as distribuições têm a mesma forma e a mesma dispersão, diferindo no máximo por um deslocamento.
+
+### Teste da Mediana de Mood
+
+O teste de Mood calcula a **mediana global** $\hat{m}$ das $N$ observações, classifica cada observação como acima ou não acima de $\hat{m}$, monta uma tabela de contingência $k\times 2$ e aplica um teste qui-quadrado de independência. Ele compara **medianas** e usa muito menos informação dos dados: de cada observação, aproveita apenas a sua posição relativa a $\hat{m}$.
+
+::: {.callout-note}
+Ao longo da prática, evite dizer apenas "os testes deram resultados diferentes". A pergunta correta é: **os quatro procedimentos estão respondendo à mesma pergunta estatística?**
+:::
+
+## Parte 1: Análise de um experimento real
+
+### O experimento
+
+Uma rede de *fast food* introduziu um novo item no cardápio e precisava decidir qual campanha de marketing usaria no lançamento nacional. Foram definidas **três promoções** e, em um teste de mercado, cada **loja** participante foi **designada aleatoriamente** a uma das três. As vendas do novo item foram registradas durante as **quatro primeiras semanas** de campanha.
+
+Trata-se, portanto, de um **experimento completamente aleatorizado com um fator** (a promoção) e **três tratamentos**. A unidade experimental é a loja.
+
+Os dados estão disponíveis no Kaggle:
+
+> **Fast Food Marketing Campaign A/B Test** — <https://www.kaggle.com/datasets/chebotinaa/fast-food-marketing-campaign-ab-test>
+> (origem: conjunto de exemplo do IBM Watson Analytics)
+
+Baixe o arquivo pela plataforma ou use a cópia disponibilizada com esta prática, `dados_pratica03.csv`. As variáveis são:
+
+| Variável | Descrição |
+|---|---|
+| `MarketID` | identificador do mercado |
+| `MarketSize` | porte do mercado: `Small`, `Medium`, `Large` |
+| `LocationID` | identificador da loja |
+| `AgeOfStore` | idade da loja, em anos |
+| `Promotion` | promoção aplicada: 1, 2 ou 3 |
+| `week` | semana de campanha: 1 a 4 |
+| `SalesInThousands` | vendas do novo item, em milhares de dólares |
+
+A pergunta de interesse é:
+
+**Há evidências de que as três promoções diferem quanto às vendas do novo item?**
+
+### Tarefa 0: unidade experimental e independência
+
+Antes de qualquer teste, responda:
+
+1. Leia o arquivo e verifique quantas linhas ele tem e quantas lojas distintas (`LocationID`) aparecem. O que explica a diferença entre esses dois números?
+
+```{r, message=FALSE, warning=FALSE}
+db <- read_csv("dados_pratica03.csv")
+linhas <- nrow(db)
+lojas_distintas <- unique(db$LocationID) %>% length()
+```
+
+Existem `r linhas` linhas no arquivo e `r lojas_distintas` lojas distintas. A diferença entre esses dois números é que a mesma loja computa as vendas nas quatro semanas, por isso, `r 4*137` linhas.
+
+2. A aleatorização foi feita ao nível da **loja** ou ao nível da **semana**? Qual é, então, a unidade experimental?
+
+A unidade experimental é a **loja**, visto que a aleatorização foi feita ao nível da **loja**.
+
+3. As 548 linhas do arquivo podem ser tratadas como observações independentes em um teste de $K$ amostras independentes? Justifique.
+
+Não, pois existem diferentes linhas que possuem o mesmo `LocationID`, isto é, não são replicações.
+
+4. Construa uma base **agregada por loja**, com uma linha por `LocationID` e a variável resposta
+$$
+\texttt{venda\_media} = \text{média das vendas semanais daquela loja}.
+$$
+Confira quantas lojas restaram e quantas ficaram em cada promoção. O experimento é balanceado?
+
+```{r, message=FALSE, warning=FALSE}
+db_agregada <- db %>% group_by(LocationID, Promotion, MarketSize, AgeOfStore) %>% 
+  summarise("venda_media" = mean(SalesInThousands))
+lojas_restantes <- nrow(db_agregada)
+balanceamento <- table(db_agregada$Promotion)
+```
+
+Restaram `r lojas_restantes` lojas e o experimento não é balanceado, pois a configuração é `r balanceamento` para os tipos de promoções $1, 2, 3$, respectivamente.
+
+5. Todas as análises seguintes devem usar essa base agregada. Explique, em uma frase, por que analisar as 548 linhas originais inflaria artificialmente o tamanho amostral.
+
+Pois estaríamos considerando na análise a mesma loja só que em diferentes semanas de arrecadação das vendas. Isso é diferente de uma replicação, pois faz com que as observações não sejam independentes. Assim, trabalhar com a média das vendas semanais por loja busca amenizar esse problema. 
+
+::: {.callout-warning}
+Esse é um erro muito comum em análises publicadas desse conjunto de dados. Independência das observações é uma suposição dos **quatro** procedimentos desta prática — nenhum deles é robusto a essa violação.
+:::
+
+### Tarefa 1: análise exploratória
+
+1. Calcule, para cada promoção: $n$, média, mediana, desvio-padrão, amplitude interquartil, mínimo e máximo de `venda_media`.
+
+```{r}
+db_agregada %>% group_by(Promotion) %>% summarize("Média" = mean(venda_media), 
+  "Mediana" = quantile(venda_media, probs = 0.5), "Desvio padrão" = sd(venda_media),
+  "Amplitude interquartil" = quantile(venda_media, probs = 0.75) - quantile(
+    venda_media, probs = 0.25), "Mínimo" = min(venda_media), "Máximo" = max(venda_media)) %>% 
+  round(2) %>% kable()
+```
+
+2. Construa *boxplots* de `venda_media` por promoção e sobreponha as observações individuais (use algum deslocamento horizontal aleatório para evitar sobreposição).
+
+```{r}
+db_agregada %>% ggplot(aes(y = venda_media, x = "")) +
+  geom_boxplot(fill = "lightblue") +
+  geom_jitter(width = 0.1) +
+  facet_wrap(~Promotion)
+```
+
+3. Construa histogramas ou estimativas de densidade da resposta em cada grupo.
+
+```{r, message=FALSE}
+db_agregada %>% ggplot(aes(x = venda_media)) +
+  geom_histogram(aes(y = after_stat(density)), fill = "lightblue") +
+  geom_density(linewidth = 0.5) +
+  facet_wrap(~Promotion)
+```
+
+
+4. Descreva a forma da distribuição das vendas. Ela é aproximadamente simétrica? Há indícios de mais de uma moda?
+
+A forma da distribuição de vendas não é aproximadamente simétrica, visto que há assimetria a direita. Há indícios de mais de uma moda, pois a distribuição aparenta ser bimodal, com uma moda global e outra local (Promoção $3$), já na Promoção $1$ e $2$ parecem ter três modas.
+
+5. Faça uma tabela cruzando `MarketSize` e `Promotion`. O que essa tabela sugere sobre a origem da forma que você observou no item anterior?
+
+```{r}
+table(db_agregada$MarketSize, db_agregada$Promotion)
+```
+Esta tabela sugere que entre os diferentes tipos de promoções, existem quantidades distintas de tamanhos dos mercados. Porém, ao olhar para cada nível do tamanho do mercado, as frequências relativas não variam tanto, possívelmente uma interação entra essas duas variáveis possa não ser significativa.
+
+6. Há observações extremas? Elas devem ser removidas? Justifique no contexto do experimento.
+
+Existem observações extremas, identificados como outliers segundo o boxplot da venda média pelos tipos de promoções, que ultrapassaram os limites das caixas. Elas não devem ser removidas, pois no contexto experimental, são observações genuínas.
+
+### Tarefa 2: ANOVA de um fator e seus diagnósticos
+
+1. Ajuste o modelo de ANOVA de um fator e apresente a tabela de análise de variância completa, com graus de liberdade, somas de quadrados, quadrados médios, estatística $F$ e *p*-valor.
+2. Escreva as hipóteses nula e alternativa **em termos dos parâmetros** e depois em linguagem do problema.
+3. Faça o diagnóstico do modelo:
+   - gráfico de resíduos contra valores ajustados;
+   - `QQ-plot` dos resíduos;
+   - teste de Shapiro-Wilk sobre os resíduos;
+   - testes de Bartlett e de Fligner-Killeen para homogeneidade de variâncias.
+4. Com base nesses diagnósticos, quais suposições da ANOVA clássica parecem razoáveis e quais não parecem? Seja específico: separe o que falha do que não falha.
+5. O tamanho amostral ($N$ da ordem de uma centena) ajuda a ANOVA neste caso? Em que sentido, exatamente, e o que o Teorema Central do Limite **não** garante aqui?
+
+### Tarefa 3: ANOVA de Welch
+
+1. Aplique a ANOVA de Welch. Reporte a estatística, os dois graus de liberdade e o *p*-valor.
+2. Compare os graus de liberdade do denominador com os da ANOVA clássica. Por que eles diferem?
+3. O resultado mudou muito em relação à Tarefa 2? Esse resultado é coerente com o que os testes de Bartlett e de Fligner indicaram?
+4. Neste conjunto de dados específico, a ANOVA de Welch resolve o problema identificado no diagnóstico da Tarefa 2? Explique.
+
+### Tarefa 4: teste de Kruskal-Wallis
+
+1. Aplique o teste de Kruskal-Wallis. Reporte $H$, os graus de liberdade e o *p*-valor.
+2. Calcule os postos médios de cada grupo e apresente-os em uma tabela.
+3. Escreva a hipótese nula do teste na sua forma **geral** (igualdade de distribuições) e explique que condição adicional é necessária para lê-lo como um teste de **locação**. Essa condição parece razoável aqui? Use os gráficos da Tarefa 1 para argumentar.
+4. Há empates nos dados? O que a função do R faz com eles?
+
+### Tarefa 5: teste da Mediana de Mood
+
+1. Calcule a mediana global de `venda_media`.
+2. **Construa manualmente** a tabela de contingência $3\times 2$ que classifica cada loja em "acima da mediana global" ou "não acima", por promoção. Apresente essa tabela.
+3. Aplique o teste qui-quadrado de independência a essa tabela e reporte a estatística, os graus de liberdade e o *p*-valor. Verifique se as frequências esperadas são grandes o bastante para a aproximação qui-quadrado.
+4. Quanta informação foi descartada ao substituir cada venda por um simples "acima/não acima"? Dê um exemplo concreto de duas lojas muito diferentes que o teste trata de maneira idêntica.
+5. Em que situação você esperaria que essa perda de informação custasse caro? E em que situação ela custaria pouco?
+
+### Tarefa 6: comparação e análises posteriores
+
+1. Reúna em uma única tabela os *p*-valores dos quatro procedimentos.
+2. Todos levam à mesma conclusão ao nível $\alpha = 0{,}05$? Os *p*-valores estão na ordem que você esperava antes de rodar os testes? Comente.
+3. Calcule pelo menos duas medidas de tamanho de efeito: $\eta^2$ a partir da tabela da ANOVA e $\epsilon^2 = (H-k+1)/(N-k)$ a partir de Kruskal-Wallis. Interprete.
+4. Como o teste global foi rejeitado, faça comparações múltiplas por duas vias:
+   - Tukey HSD, a partir do modelo da ANOVA;
+   - comparações par a par baseadas em postos, com correção de Holm ou de Benjamini-Hochberg.
+5. As duas vias identificam os mesmos pares como diferentes? Alguma delas é mais conservadora aqui?
+6. Por que é necessário controlar o erro por família de comparações? O que aconteceria se vocês fizessem os três testes par a par a 5% sem nenhuma correção?
+7. Escreva uma conclusão em linguagem do problema, respondendo à pergunta da rede de *fast food*. Indique também pelo menos duas limitações do experimento que impedem uma recomendação definitiva.
+
+### Tarefa 7: consertar o modelo ou trocar de método?
+
+Uma alternativa à mudança de método é transformar a resposta.
+
+1. Repita a ANOVA clássica, a ANOVA de Welch e o teste de Kruskal-Wallis usando $\log(\texttt{venda\_media})$.
+2. Refaça o `QQ-plot` e o teste de Shapiro-Wilk dos resíduos do modelo transformado. A normalidade melhorou? Ficou satisfatória?
+3. Compare o *p*-valor de Kruskal-Wallis antes e depois da transformação. O que você observa? Explique por que isso acontece.
+4. Discuta: o parâmetro testado pela ANOVA na escala logarítmica é o mesmo da ANOVA na escala original? A conclusão pode ser transportada de volta para "milhares de dólares" sem cuidado?
+5. Em que situações "transformar e usar ANOVA" é preferível a "usar um método não-paramétrico"? E o contrário?
+
+## Parte 2: Preparação do estudo de simulação
+
+Na Parte 1, vocês viram os quatro procedimentos em um único conjunto de dados. Um único conjunto, porém, não permite dizer se um teste **controla o nível** nem qual deles tem **mais poder**: para isso é preciso repetir o experimento muitas vezes em cenários cujas verdades sejam conhecidas. É isso que a simulação faz.
+
+### O modelo de geração
+
+Com $k=3$ grupos, gere
+$$
+Y_{ij} = \mu_i + \sigma_i\,\varepsilon_{ij},
+\qquad i = 1,2,3, \quad j=1,\ldots,n_i,
+$$
+em que os $\varepsilon_{ij}$ são independentes, com **média 0 e variância 1**. Padronizar os erros é importante: garante que o tamanho de efeito $\delta$ tenha o mesmo significado em todas as formas distribucionais.
+
+**Médias.** Use $\boldsymbol{\mu} = (\delta,\,0,\,0)$: apenas o primeiro grupo se desloca. Quando $\delta = 0$, a hipótese nula é verdadeira para os quatro testes.
+
+**Formas distribucionais.**
+
+| Código | Como gerar $\varepsilon$ | Característica |
+|---|---|---|
+| `normal` | $Z \sim N(0,1)$ | cenário de referência |
+| `t3` | $T_3/\sqrt{3}$, com $T_3$ t de Student com 3 g.l. | simétrica, caudas pesadas |
+| `lognormal` | $\left(e^{Z}-e^{1/2}\right)\big/\sqrt{(e-1)e}$ | fortemente assimétrica à direita |
+| `contaminada` | mistura: com prob. 0,9 vem de $N(0,1)$ e com prob. 0,1 de $N(0,5)$, dividida por $\sqrt{3{,}4}$ | contaminação por *outliers* |
+
+Confira você mesmo que cada forma tem média 0 e variância 1 (analiticamente ou gerando uma amostra grande).
+
+**Estruturas de variância.**
+
+| Código | $(\sigma_1,\sigma_2,\sigma_3)$ |
+|---|---|
+| `homo` | $(1,\,1,\,1)$ |
+| `hetero` | $(1,\,1,\,\sqrt{3})$ |
+
+Note que o grupo com variância inflada (o terceiro) **não** é o grupo deslocado (o primeiro). Isso mantém separados os dois efeitos que queremos estudar.
+
+**Configurações de tamanho amostral.**
+
+| Código | $(n_1,n_2,n_3)$ | $N$ | Observação |
+|---|---|---|---|
+| `A` | $(10,10,10)$ | 30 | balanceado, pequeno |
+| `B` | $(20,20,20)$ | 60 | balanceado, moderado |
+| `C` | $(50,50,50)$ | 150 | balanceado, grande |
+| `D` | $(10,20,60)$ | 90 | desbalanceado; **maior grupo tem a maior variância** |
+| `E` | $(60,20,10)$ | 90 | desbalanceado; **maior grupo tem a menor variância** |
+
+**Tamanhos de efeito.** $\delta \in \{0;\ 0{,}25;\ 0{,}50;\ 0{,}75;\ 1{,}00\}$, em unidades de desvio-padrão do erro.
+
+**Número de repetições.** $B = 1000$ em cada célula da grade, com $\alpha = 0{,}05$. Fixe uma semente antes de cada bloco de simulações.
+
+### Organização sugerida do código
+
+Escreva funções separadas para:
+
+1. `gera_amostras(n_vec, delta, forma, sigma_vec)`, devolvendo os dados dos três grupos;
+2. `roda_testes(dados)`, devolvendo os quatro *p*-valores em um vetor nomeado;
+3. `simula_celula(...)`, que repete os dois passos anteriores $B$ vezes e devolve a proporção de rejeições de cada teste;
+4. `simula_grade(...)`, que percorre todas as combinações e empilha os resultados.
+
+O resultado final deve ser uma tabela com as colunas `forma`, `n_config`, `variancia`, `delta`, `teste` e `prop_rejeicoes`, com uma linha por combinação e teste.
+
+::: {.callout-note}
+O teste da Mediana de Mood pode produzir tabelas $3\times2$ degeneradas (uma coluna inteira de zeros) em amostras muito pequenas. Trate esse caso no seu código em vez de deixar a simulação parar.
+:::
+
+## Parte 3: Tamanho do teste
+
+Quando $\delta = 0$, as três populações têm a mesma média e, nos cenários `homo`, a mesma distribuição. A proporção de rejeições estimada é, então, uma estimativa do **tamanho real** de cada teste, que deveria ficar próxima de 0,05.
+
+### Tarefa 8: simulação sob $H_0$
+
+Rode $B = 1000$ repetições para todas as combinações:
+
+- `forma` em $\{$`normal`, `t3`, `lognormal`, `contaminada`$\}$;
+- `n_config` em $\{$`A`, `B`, `C`, `D`, `E`$\}$;
+- `variancia` em $\{$`homo`, `hetero`$\}$;
+- $\delta = 0$.
+
+São 40 células e, portanto, 160 estimativas (quatro testes por célula).
+
+1. Apresente os resultados em uma tabela organizada.
+2. Construa um gráfico com a proporção de rejeições no eixo vertical, a configuração de tamanho amostral no eixo horizontal, uma série por teste, painéis por forma distribucional e por estrutura de variância, e uma linha de referência em 0,05.
+3. Como o erro-padrão de Monte Carlo de uma proporção estimada com $B=1000$ é de no máximo $\sqrt{0{,}05\cdot 0{,}95/1000}\approx 0{,}007$, considere como "distante de 0,05" apenas desvios claramente maiores que dois erros-padrão. Quais células ficam fora dessa faixa?
+
+::: {.callout-warning}
+Antes de interpretar qualquer número da estrutura `hetero`, responda a esta pergunta: com $\delta=0$ e $\boldsymbol{\sigma}=(1,1,\sqrt{3})$, a hipótese nula é verdadeira **para qual dos quatro testes**? Escreva a nula de cada um e verifique uma a uma. A tabela só pode ser lida depois disso.
+:::
+
+Discuta:
+
+a. Sob `homo`, todos os testes controlam o nível nas quatro formas? A assimetria da lognormal afeta mais qual procedimento? Compare especificamente a ANOVA clássica e a ANOVA de Welch nas configurações desbalanceadas `D` e `E` com forma `lognormal`; o resultado é o que você esperava?
+
+b. Sob `hetero` e balanceado (`A`, `B`, `C`), o que acontece com a ANOVA clássica? E com Kruskal-Wallis? Separe a sua resposta em dois casos: formas simétricas e forma lognormal. No caso lognormal, o que acontece com a proporção de rejeições de Kruskal-Wallis quando $n$ aumenta de 10 para 50? Isso é um defeito do teste?
+
+c. Compare `D` e `E` sob `hetero`. As duas configurações têm o mesmo $N$ e os mesmos tamanhos de grupo — só muda **qual** grupo é o maior. Por que os resultados são tão diferentes?
+
+d. A ANOVA de Welch cumpre o que promete?
+
+e. Kruskal-Wallis é imune a variâncias desiguais? Justifique a partir dos números, e não apenas da teoria.
+
+## Parte 4: Poder do teste
+
+Agora fixe `variancia = homo`, de modo que todas as suposições de dispersão estejam satisfeitas e a comparação seja uma disputa "limpa" de poder.
+
+### Tarefa 9: curvas de poder
+
+Rode a simulação para:
+
+- `forma` em $\{$`normal`, `t3`, `lognormal`, `contaminada`$\}$;
+- `n_config` em $\{$`A`, `B`, `C`$\}$;
+- $\delta \in \{0{,}25;\ 0{,}50;\ 0{,}75;\ 1{,}00\}$;
+- `variancia = homo`, $B=1000$.
+
+Aproveite os resultados com $\delta = 0$ já obtidos na Tarefa 8 para que as curvas partam da origem correta.
+
+1. Construa curvas de poder com $\delta$ no eixo horizontal, a proporção de rejeições no eixo vertical, uma cor por teste, painéis por forma e por tamanho amostral.
+2. Para cada forma e cada $n$, identifique o teste com maior poder.
+
+Discuta:
+
+a. No cenário `normal`, qual procedimento tem maior poder? A diferença é grande? Ela diminui quando $n$ cresce?
+
+b. Em `t3` e `contaminada`, a ordem se mantém? Quanto a ANOVA perde quando há caudas pesadas, e por quê?
+
+c. Em `lognormal`, qual é a diferença de poder entre Kruskal-Wallis e a ANOVA? Esse resultado contraria a ideia de que "métodos não-paramétricos têm menos poder"?
+
+d. Em quais formas o teste da Mediana de Mood fica em último lugar? Em quais formas ele **supera** a ANOVA e a ANOVA de Welch? A afirmação "o teste de Mood é sempre o mais fraco" se sustenta? Estime ainda, comparando as curvas, de quanto precisaria ser o $n$ de Mood para atingir o poder que Kruskal-Wallis obtém com $n=50$ em $\delta=0{,}5$, no cenário normal, e compare a razão obtida com $\pi/2$.
+
+e. Em `lognormal`, o deslocamento $\delta$ altera média e mediana da mesma forma? Isso complica a leitura da comparação de poder? Relacione com a discussão da Prática 2 sobre o cenário assimétrico.
+
+## Parte 5: A armadilha — heterocedasticidade com grupos desbalanceados
+
+Esta parte reúne os dois ingredientes que, combinados, causam mais estrago.
+
+### Tarefa 10
+
+1. Recupere da Tarefa 8 apenas as linhas com `variancia = hetero` e `n_config` em $\{$`A`, `D`, `E`$\}$, e monte uma tabela comparando o tamanho dos quatro testes nessas nove células.
+2. Rode uma pequena simulação adicional de poder com `variancia = hetero`, `forma` em $\{$`normal`, `lognormal`$\}$, `n_config` em $\{$`A`, `D`, `E`$\}$ e $\delta \in \{0{,}5;\ 1{,}0\}$.
+3. Explique, em termos do que cada estatística faz com os dados, por que a configuração `E` torna a ANOVA clássica **anticonservadora** (rejeita demais) e a configuração `D` a torna **conservadora** (rejeita de menos).
+4. Kruskal-Wallis sofre do mesmo problema? Por quê? Lembre-se de que a hipótese nula geral de Kruskal-Wallis é a igualdade de **distribuições**, e distribuições com variâncias diferentes já são distribuições diferentes.
+5. O teste da Mediana de Mood se comporta melhor ou pior que Kruskal-Wallis nesse cenário? Há alguma razão estrutural para isso? Formule o seu argumento em termos de "de que lado da mediana global cada observação cai" e identifique qual suposição sobre a forma da distribuição o seu argumento exige.
+6. Verifique agora essa suposição. Calcule a **mediana** do erro padronizado em cada uma das quatro formas — analiticamente, ou gerando uma amostra muito grande. Em seguida, sob $\boldsymbol{\sigma}=(1,1,\sqrt{3})$ e $\delta = 0$, calcule a mediana de cada um dos três grupos em cada forma. As três medianas são iguais nas quatro formas? Em quais formas a nula do teste de Mood é, de fato, verdadeira? E a de Kruskal-Wallis?
+7. Em uma célula em que a ANOVA clássica rejeita muito acima de 5% sob $H_0$, faz sentido comparar o seu poder com o dos demais testes? Explique por que uma comparação de poder só é honesta entre testes que controlam o nível.
+8. Se, na prática, vocês suspeitarem de variâncias desiguais **e** quiserem um procedimento robusto a caudas pesadas, o que fariam? Não existe uma única resposta certa — argumentem.
+
+## Síntese final
+
+Escreva uma conclusão comparando os quatro procedimentos, respondendo:
+
+1. Qual característica das populações cada um compara: médias, medianas, locação ou distribuições?
+2. Em qual cenário da simulação cada procedimento foi a melhor escolha?
+3. Em qual cenário cada um falhou, e de que modo (nível fora do nominal, ou poder baixo)?
+4. Por que "não-paramétrico" não significa "sem suposições"? Cite duas suposições que Kruskal-Wallis e Mood **ainda** fazem.
+5. Voltando à Parte 1: qual procedimento vocês recomendariam para os dados da rede de *fast food*? Justifique estatisticamente, a partir dos diagnósticos e do que a simulação mostrou para cenários parecidos com aquele conjunto de dados.
+
+## Entrega sugerida
+
+Cada grupo entrega:
+
+- a base agregada e a descrição da Tarefa 0;
+- a tabela e os gráficos da Tarefa 1;
+- a tabela comparativa de *p*-valores e as comparações múltiplas da Tarefa 6;
+- as respostas da Tarefa 7;
+- a tabela e o gráfico da Tarefa 8, com a discussão;
+- as curvas de poder da Tarefa 9, com a discussão;
+- a análise da Tarefa 10;
+- a síntese final.
+
+Entregue também o código em R, organizado e reprodutível, com a semente utilizada.
