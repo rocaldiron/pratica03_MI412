@@ -1,18 +1,19 @@
 ---
 title: "Prática 3: Comparação de K Amostras Independentes"
 subtitle: "ANOVA de um fator, ANOVA de Welch, Kruskal-Wallis e Mediana de Mood"
-author: "Rodrigo Caldiron"
+author: "Nathan Cordeiro Ginak e Rodrigo Caldiron"
 format: pdf
 lang: pt
 ---
 
-```{r, message=FALSE}
+```{r, warning=FALSE, message=FALSE, include=FALSE}
 # BIBLIOTECAS UTILIZADAS
+suppressPackageStartupMessages({
 library(readr)
 library(dplyr)
 library(ggplot2)
 library(tidyr)
-library(knitr)
+library(knitr)})
 theme_set(theme_bw())
 ```
 
@@ -161,7 +162,7 @@ A unidade experimental é a **loja**, visto que a aleatorização foi feita ao n
 
 3. As 548 linhas do arquivo podem ser tratadas como observações independentes em um teste de $K$ amostras independentes? Justifique.
 
-Não, pois existem diferentes linhas que possuem o mesmo `LocationID`, isto é, não são replicações.
+Não. As 548 linhas não são independentes porque há 4 medidas repetidas para uma mesma loja (correlação temporal/intra-sujeito). Os testes de $K$ amostras independentes exigem que cada observação seja independente das demais.
 
 4. Construa uma base **agregada por loja**, com uma linha por `LocationID` e a variável resposta
 $$
@@ -176,11 +177,11 @@ lojas_restantes <- nrow(db_agregada)
 balanceamento <- table(db_agregada$Promotion)
 ```
 
-Restaram `r lojas_restantes` lojas e o experimento não é balanceado, pois a configuração é `r balanceamento` para os tipos de promoções $1, 2, 3$, respectivamente.
+Restaram `r lojas_restantes` lojas e o experimento não é balanceado, pois a configuração é `r balanceamento` para os tipos de promoções $1, 2, 3$, respectivamente. Assim, a promoção de número $1$ é ligeiramente desbalanceada, o que não é considerado um problema grave, pois a ANOVA clássica é robusta a pequenas diferenças nos tamanhos amostrais. 
 
 5. Todas as análises seguintes devem usar essa base agregada. Explique, em uma frase, por que analisar as 548 linhas originais inflaria artificialmente o tamanho amostral.
 
-Pois estaríamos considerando na análise a mesma loja só que em diferentes semanas de arrecadação das vendas. Isso é diferente de uma replicação, pois faz com que as observações não sejam independentes. Assim, trabalhar com a média das vendas semanais por loja busca amenizar esse problema. 
+Pois estaríamos considerando na análise a mesma loja só que em diferentes semanas de arrecadação das vendas, inflando o tamanho amostral. Isso é diferente de uma replicação, pois faz com que as observações não sejam independentes, além de subestimar erros-padrões e aumentar perigosamente a chance de falsos positivos (rejeitar $H_0$ indevidamente). Portanto, trabalhar com a média das vendas semanais por loja busca amenizar esse problema. 
 
 ::: {.callout-warning}
 Esse é um erro muito comum em análises publicadas desse conjunto de dados. Independência das observações é uma suposição dos **quatro** procedimentos desta prática — nenhum deles é robusto a essa violação.
@@ -194,8 +195,8 @@ Esse é um erro muito comum em análises publicadas desse conjunto de dados. Ind
 db_agregada %>% group_by(Promotion) %>% summarize("Média" = mean(venda_media), 
   "Mediana" = quantile(venda_media, probs = 0.5), "Desvio padrão" = sd(venda_media),
   "Amplitude interquartil" = quantile(venda_media, probs = 0.75) - quantile(
-    venda_media, probs = 0.25), "Mínimo" = min(venda_media), "Máximo" = max(venda_media)) %>% 
-  round(2) %>% kable()
+    venda_media, probs = 0.25), "Mínimo" = min(venda_media), 
+  "Máximo" = max(venda_media)) %>% round(2) %>% kable()
 ```
 
 2. Construa *boxplots* de `venda_media` por promoção e sobreponha as observações individuais (use algum deslocamento horizontal aleatório para evitar sobreposição).
@@ -204,89 +205,264 @@ db_agregada %>% group_by(Promotion) %>% summarize("Média" = mean(venda_media),
 db_agregada %>% ggplot(aes(y = venda_media, x = "")) +
   geom_boxplot(fill = "lightblue") +
   geom_jitter(width = 0.1) +
-  facet_wrap(~Promotion)
+  facet_wrap(~Promotion) +
+  labs(x = "Tipo de promoção")
 ```
 
 3. Construa histogramas ou estimativas de densidade da resposta em cada grupo.
 
 ```{r, message=FALSE}
 db_agregada %>% ggplot(aes(x = venda_media)) +
-  geom_histogram(aes(y = after_stat(density)), fill = "lightblue") +
-  geom_density(linewidth = 0.5) +
+  geom_histogram(aes(y = after_stat(density)), fill = "lightblue", col = "black") +
+  geom_density(linewidth = 0.5, colour = "red") +
   facet_wrap(~Promotion)
 ```
 
 
 4. Descreva a forma da distribuição das vendas. Ela é aproximadamente simétrica? Há indícios de mais de uma moda?
 
-A forma da distribuição de vendas não é aproximadamente simétrica, visto que há assimetria a direita. Há indícios de mais de uma moda, pois a distribuição aparenta ser bimodal, com uma moda global e outra local (Promoção $3$), já na Promoção $1$ e $2$ parecem ter três modas.
+A forma da distribuição de vendas não é aproximadamente simétrica, visto que há assimetria a direita. Há indícios de mais de uma moda, pois a distribuição aparenta ser bimodal, com uma moda global e outra local (Promoção $3$). Já na Promoção $1$ e $2$ parecem ter três modas. Sendo assim, isso é um indicativo de dois ou mais grupos concentrados entre 40-60 mil dólares e entre 80-90 mil dólares.
 
 5. Faça uma tabela cruzando `MarketSize` e `Promotion`. O que essa tabela sugere sobre a origem da forma que você observou no item anterior?
 
 ```{r}
-table(db_agregada$MarketSize, db_agregada$Promotion)
+table(db_agregada$MarketSize, db_agregada$Promotion) %>% kable()
 ```
-Esta tabela sugere que entre os diferentes tipos de promoções, existem quantidades distintas de tamanhos dos mercados. Porém, ao olhar para cada nível do tamanho do mercado, as frequências relativas não variam tanto, possívelmente uma interação entra essas duas variáveis possa não ser significativa.
+
+Podemos afirmar que a bimodalidade é ocasianada pelos diferentes tamanhos das lojas. Lojas pequenos e médias formam a massa principal à esquerda, enquanto as lojas grandes produzem as vendas na cauda direita, criando o segundo pico da distribuição.
 
 6. Há observações extremas? Elas devem ser removidas? Justifique no contexto do experimento.
 
-Existem observações extremas, identificados como outliers segundo o boxplot da venda média pelos tipos de promoções, que ultrapassaram os limites das caixas. Elas não devem ser removidas, pois no contexto experimental, são observações genuínas.
+Existem observações extremas, identificados como outliers segundo o boxplot da venda média pelos tipos de promoções, que ultrapassaram os limites das caixas. Elas não devem ser removidas, pois no contexto experimental, são observações genuínas. Removê-los introduziria viés na análise, mascarando o verdadeiro potencial de lucro das promoções.
 
 ### Tarefa 2: ANOVA de um fator e seus diagnósticos
 
 1. Ajuste o modelo de ANOVA de um fator e apresente a tabela de análise de variância completa, com graus de liberdade, somas de quadrados, quadrados médios, estatística $F$ e *p*-valor.
+
+```{r}
+modelo_anova <- aov(venda_media ~ factor(Promotion), data = db_agregada)
+summary(modelo_anova)
+```
+
 2. Escreva as hipóteses nula e alternativa **em termos dos parâmetros** e depois em linguagem do problema.
+
+\textbf{2.} Hipóteses:
+\begin{itemize}
+  \item$H_0: \mu_1 = \mu_2 = \mu_3$ (As médias de vendas verdadeiras das três campanhas são iguais).
+  \item$H_1:$ Pelo menos uma média $\mu_i$ difere das demais (Pelo menos uma campanha tem impacto diferente nas vendas), $i=1,2,3$.
+\end{itemize}
+
 3. Faça o diagnóstico do modelo:
    - gráfico de resíduos contra valores ajustados;
    - `QQ-plot` dos resíduos;
    - teste de Shapiro-Wilk sobre os resíduos;
    - testes de Bartlett e de Fligner-Killeen para homogeneidade de variâncias.
+   
+```{r}
+par(mfrow = c(1, 2))
+plot(modelo_anova, which = 1:2)
+shapiro.test(resid(modelo_anova))
+bartlett.test(venda_media ~ factor(Promotion), data = db_agregada)
+fligner.test(venda_media ~ factor(Promotion), data = db_agregada)
+```
+
 4. Com base nesses diagnósticos, quais suposições da ANOVA clássica parecem razoáveis e quais não parecem? Seja específico: separe o que falha do que não falha.
+
+Com base no diagnóstico realizado para a ANOVA clássica, podemos afirmar que o pressuposto da normalidade dos resíduos foi violado, visto que, para um nível de significãncia $\alpha = 0.05$, obtemos um $p$-valor menor que $\alpha$ no teste de Shapiro-Wilk, além de observarmos claros desvios na parte superior do $QQ$-plot dos resíduos. Tais resultados são justificados pelo padrão bimodal das vendas médias, que compromete a normalidade.
+
+Por outro lado, a homogeneidade das variâncias (homocedasticidade) parece razoável, isso porque o gráfico de valores ajustados versus resíduos mostra que as observações estão espalhadas de maneira semelhante para cada uma das três promoções. Além disso, o teste de Bartlett e o teste de Fligner-Killeen, ambos usados para verificar a homogeneidade das variâncias, apresentaram $p$-valor maior que $\alpha$.
+
 5. O tamanho amostral ($N$ da ordem de uma centena) ajuda a ANOVA neste caso? Em que sentido, exatamente, e o que o Teorema Central do Limite **não** garante aqui?
+
+O tamanho amostral grande ($N = 137$) ajuda porque, pelo Teorema Central do Limite (TCL), a distribuição das médias amostrais se aproxima da normalidade, tornando o teste $F$ relativamente robusto. Contudo, o TCL não garante que a média seja a melhor medida de tendência central (ou a mais representativa) para uma distribuição fortemente bimodal.
 
 ### Tarefa 3: ANOVA de Welch
 
 1. Aplique a ANOVA de Welch. Reporte a estatística, os dois graus de liberdade e o *p*-valor.
+
+```{r}
+welch_anova <- oneway.test(venda_media ~ factor(Promotion), data = db_agregada, 
+                           var.equal = FALSE)
+welch_anova
+```
+
 2. Compare os graus de liberdade do denominador com os da ANOVA clássica. Por que eles diferem?
+
+Os graus de liberdade do denominador `r round(welch_anova$parameter[2],3)` são menores e fracionários em relação à ANOVA clássica (`r modelo_anova$df.residual`), devido ao uso da aproximação de Satterthwaite para acomodar possíveis variâncias heterogêneas e o leve desbalanceamento.
+
 3. O resultado mudou muito em relação à Tarefa 2? Esse resultado é coerente com o que os testes de Bartlett e de Fligner indicaram?
+
+O resultado ($p$-valor) não mudou muito. Isso é totalmente coerente com os testes de Bartlett e Fligner, que já indicavam que as variâncias não eram significativamente diferentes.
+
 4. Neste conjunto de dados específico, a ANOVA de Welch resolve o problema identificado no diagnóstico da Tarefa 2? Explique.
+
+Não. O problema diagnosticado na Tarefa 2 foi a falta de normalidade (bimodalidade), não a heterocedasticidade. A ANOVA de Welch relaxa apenas a suposição de variâncias iguais, ela não conserta assimetria nem bimodalidade.
 
 ### Tarefa 4: teste de Kruskal-Wallis
 
 1. Aplique o teste de Kruskal-Wallis. Reporte $H$, os graus de liberdade e o *p*-valor.
+
+```{r}
+kw_teste <- kruskal.test(venda_media ~ factor(Promotion), data = db_agregada)
+kw_teste
+```
+
 2. Calcule os postos médios de cada grupo e apresente-os em uma tabela.
+
+```{r}
+db_agregada %>% group_by(Promotion) %>% mutate(posto = rank(venda_media)) %>%
+  summarise(posto_medio = mean(posto)) %>% kable()
+```
+
 3. Escreva a hipótese nula do teste na sua forma **geral** (igualdade de distribuições) e explique que condição adicional é necessária para lê-lo como um teste de **locação**. Essa condição parece razoável aqui? Use os gráficos da Tarefa 1 para argumentar.
+
+A hipótese nula geral do teste de Kruskal-Wallis é que as $K$ amostras provêm da mesma distribuição estocástica. Para lê-lo como teste de locação (medianas), devemos supor que as distribuições têm a mesma forma e variabilidade, diferindo apenas por um deslocamento horizontal. Pelos gráficos da Tarefa 1, as três curvas têm formatos e dispersões semelhantes (todas bimodais, sobrepostas), então essa suposição é razoável aqui.
+
 4. Há empates nos dados? O que a função do R faz com eles?
+
+O R resolve o problema dos empates atribuindo o posto médio a observações com valores idênticos. Contudo, não temos empates no nosso conjunto de dados.
+
+```{r}
+any(rank(db_agregada$venda_media) %% 1 != 0)
+```
+
 
 ### Tarefa 5: teste da Mediana de Mood
 
 1. Calcule a mediana global de `venda_media`.
+
+```{r}
+mediana_global <- median(db_agregada$venda_media)
+mediana_global
+```
+
 2. **Construa manualmente** a tabela de contingência $3\times 2$ que classifica cada loja em "acima da mediana global" ou "não acima", por promoção. Apresente essa tabela.
+
+```{r}
+db_agregada$AcimaMediana <- ifelse(db_agregada$venda_media > mediana_global, 
+                                   "Acima", "Não Acima")
+tabela_mood <- table(db_agregada$Promotion, db_agregada$AcimaMediana)
+tabela_mood
+```
+
 3. Aplique o teste qui-quadrado de independência a essa tabela e reporte a estatística, os graus de liberdade e o *p*-valor. Verifique se as frequências esperadas são grandes o bastante para a aproximação qui-quadrado.
+
+```{r}
+chisq.test(tabela_mood)
+```
+As frequências esperadas devem ser maiores ou iguais a cinco para a aproximação qui-quadrado ser condizente, o que de fato acontece.
+
+```{r}
+chisq.test(tabela_mood)$expected
+```
+
+
 4. Quanta informação foi descartada ao substituir cada venda por um simples "acima/não acima"? Dê um exemplo concreto de duas lojas muito diferentes que o teste trata de maneira idêntica.
+
+Muita informação é descartada: a magnitude exata das vendas e a distância até a mediana. Exemplo: Uma loja que vendeu 50.000 mil dólares (pouco acima da mediana de 49.6) e uma que vendeu 95.000 mil dólares são tratadas de forma idêntica (ambas recebem apenas a flag "Acima").
+
 5. Em que situação você esperaria que essa perda de informação custasse caro? E em que situação ela custaria pouco?
+
+Essa perda de informação custa caro quando as distribuições são contínuas, bem comportadas e quando diferenças de magnitude são críticas. Ela custaria pouco (seria vantajosa) na presença de outliers extremos ou caudas muito pesadas, onde a robustez máxima da mediana estabilizaria o resultado.
 
 ### Tarefa 6: comparação e análises posteriores
 
 1. Reúna em uma única tabela os *p*-valores dos quatro procedimentos.
+
+```{r}
+data.frame(
+  Teste = c("ANOVA", "Welch", "Kruskal-Wallis", "Mood"),
+  P_valor = round(c(summary(modelo_anova)[[1]][1, 5], welch_anova$p.value, 
+  kw_teste$p.value, chisq.test(tabela_mood)$p.value), 5)) %>% kable()
+```
+
 2. Todos levam à mesma conclusão ao nível $\alpha = 0{,}05$? Os *p*-valores estão na ordem que você esperava antes de rodar os testes? Comente.
+
+Sim, ao nível $\alpha = 0.05$, todos rejeitam $H_0$. De certa forma, os *p*-valores estão na ordem que esperávamos antes de rodar os testes, pois a ANOVA Clássica pressupõe homocedasticidade e normalidade (o que não foi observado na prática), a ANOVA de Welch relaxa o pressuposto de variâncias iguais (contudo, já haviam evidências para não desconfiar disso), e os testes de Kruskal-Wallis e Mediana de Mood são alternativas não paramétricas indicadas quando há violação severa da normalidade, assim, era de se esperar que os p-valores divirjam, mas todos levaram à mesma decisão estatística de rejeitar suas respectivas hipóteses nulas.
+
 3. Calcule pelo menos duas medidas de tamanho de efeito: $\eta^2$ a partir da tabela da ANOVA e $\epsilon^2 = (H-k+1)/(N-k)$ a partir de Kruskal-Wallis. Interprete.
+
+```{r}
+SQ_entre <- summary(modelo_anova)[[1]][1, 2]
+SQ_total <- sum(summary(modelo_anova)[[1]][, 2])
+eta2 <- SQ_entre / SQ_total
+N <- nrow(db_agregada)
+k <- 3
+epsilon2 <- (kw_teste$statistic - k + 1) / (N - k)
+
+cat("Eta2 (ANOVA):", eta2, "\nEpsilon2 (KW):", epsilon2, "\n")
+```
+
+O impacto prático é notável: a promoção explica cerca de $10\%$ da variação das vendas ($\eta^2 \approx 0.106$). O Kruskal-Wallis indica uma proporção similar de variância dos postos explicada.
+
 4. Como o teste global foi rejeitado, faça comparações múltiplas por duas vias:
    - Tukey HSD, a partir do modelo da ANOVA;
    - comparações par a par baseadas em postos, com correção de Holm ou de Benjamini-Hochberg.
+
+```{r}
+TukeyHSD(modelo_anova)
+pairwise.wilcox.test(db_agregada$venda_media, factor(db_agregada$Promotion), 
+                     p.adjust.method = "holm")
+```
+
 5. As duas vias identificam os mesmos pares como diferentes? Alguma delas é mais conservadora aqui?
+
+Sim, ambas as vias identificam que a Promoção 1 e a Promoção 3 diferem da Promoção 2, mas não diferem entre si. A via não-paramétrica tendeu a apresentar p-valores ajustados levemente maiores.
+
 6. Por que é necessário controlar o erro por família de comparações? O que aconteceria se vocês fizessem os três testes par a par a 5% sem nenhuma correção?
+
+É necessário controlar o erro por família (FWER) porque cada teste a $5\%$ carrega uma chance de $5\%$ de falso positivo. Se fizéssemos $3$ testes não corrigidos, a chance de pelo menos um falso positivo inflaria (seria quase $1 - (1 - 0.05)^3 \approx 14.2\%$).
+
 7. Escreva uma conclusão em linguagem do problema, respondendo à pergunta da rede de *fast food*. Indique também pelo menos duas limitações do experimento que impedem uma recomendação definitiva.
+
+As campanhas diferem significativamente quanto ao impacto nas vendas (todos os p-valores $< 0.05$). O post-hoc mostrou que as Promoções 1 e 3 superam a 2, não havendo diferença estatística entre 1 e 3. A recomendação preliminar seria escolher entre a 1 e a 3. 
+
+Contudo, existem limitações:
+
+- A variável "MarketSize" cria uma forte bimodalidade (fator de confusão); seria melhor rodar uma ANOVA de dois fatores (blocando por MarketSize). 
+
+- Pode haver sazonalidade ou efeitos não medidos nas semanas estudadas que não são generalizáveis para um lançamento anual.
 
 ### Tarefa 7: consertar o modelo ou trocar de método?
 
 Uma alternativa à mudança de método é transformar a resposta.
 
 1. Repita a ANOVA clássica, a ANOVA de Welch e o teste de Kruskal-Wallis usando $\log(\texttt{venda\_media})$.
+
+```{r}
+db_agregada$log_venda <- log(db_agregada$venda_media)
+anova_log <- aov(log_venda ~ factor(Promotion), data = db_agregada)
+summary(anova_log)
+oneway.test(log_venda ~ factor(Promotion), data = db_agregada, var.equal = FALSE)
+kruskal.test(log_venda ~ factor(Promotion), data = db_agregada)
+```
+
 2. Refaça o `QQ-plot` e o teste de Shapiro-Wilk dos resíduos do modelo transformado. A normalidade melhorou? Ficou satisfatória?
+
+```{r}
+par(mfrow=c(1,1))
+plot(anova_log, which = 2)
+shapiro.test(resid(anova_log))
+```
+
+A normalidade não melhorou (p-valor de Shapiro-Wilk continua $< 0.05$). Não ficou satisfatória porque a quebra da normalidade tem origem estrutural (dois perfis distintos de mercado misturados, isto é, bimodalidade) e não um simples desvio de assimetria que logaritmos costumam corrigir.
+
 3. Compare o *p*-valor de Kruskal-Wallis antes e depois da transformação. O que você observa? Explique por que isso acontece.
+
+```{r}
+kruskal.test(venda_media ~ factor(Promotion), data = db_agregada)$p.value
+kruskal.test(log_venda ~ factor(Promotion), data = db_agregada)$p.value
+```
+
+O $p$-valor de Kruskal-Wallis é exatamente o mesmo antes e depois. Isso ocorre porque testes baseados em postos são perfeitamente invariantes a transformações monotônicas (como o log). O posto do log(x) é igual ao posto de x.
+
 4. Discuta: o parâmetro testado pela ANOVA na escala logarítmica é o mesmo da ANOVA na escala original? A conclusão pode ser transportada de volta para "milhares de dólares" sem cuidado?
+
+Não é o mesmo. A ANOVA no log-escala compara as médias dos logaritmos, o que na escala original equivale a comparar médias geométricas (modelos multiplicativos). A conclusão não pode ser jogada de volta para "milhares de dólares" sem cuidado prático na retransformação, pois $\exp(\bar{x}_{log})$ subestima a média aritmética real $\bar{x}$.
+
 5. Em que situações "transformar e usar ANOVA" é preferível a "usar um método não-paramétrico"? E o contrário?
+
+Transformar e usar ANOVA é preferível quando há assimetria natural à direita com variância que cresce com a média (efeito multiplicativo), e o interesse for na razão de médias. Usar não-paramétricos é preferível quando a escala original da métrica precisa ser mantida conceitualmente intacta, em distribuições fortemente distorcidas (como misturas) ou para robustez contra outliers sem alterar a semântica da comparação.
 
 ## Parte 2: Preparação do estudo de simulação
 
@@ -352,6 +528,130 @@ O resultado final deve ser uma tabela com as colunas `forma`, `n_config`, `varia
 O teste da Mediana de Mood pode produzir tabelas $3\times2$ degeneradas (uma coluna inteira de zeros) em amostras muito pequenas. Trate esse caso no seu código em vez de deixar a simulação parar.
 :::
 
+```{r}
+# 1. Função para gerar amostras
+gera_amostras <- function(n_vec, delta, forma, sigma_vec) {
+  N <- sum(n_vec)
+  g <- rep(1:3, times = n_vec)
+  
+  # Gerando os erros padronizados (média 0, var 1)
+  if (forma == "normal") {
+    eps <- rnorm(N)
+  } else if (forma == "t3") {
+    eps <- rt(N, df = 3) / sqrt(3)
+  } else if (forma == "lognormal") {
+    z <- rnorm(N)
+    eps <- (exp(z) - exp(1/2)) / sqrt(exp(1) * (exp(1) - 1))
+  } else if (forma == "contaminada") {
+    comp <- rbinom(N, size = 1, prob = 0.9)
+    eps <- ifelse(comp == 1, rnorm(N, 0, 1), rnorm(N, 0, 5) / sqrt(3.4))
+  }
+  
+  # Aplicando médias (delta apenas no grupo 1) e desvios-padrão
+  mu_vec <- c(delta, 0, 0)
+  y <- rep(mu_vec, times = n_vec) + rep(sigma_vec, times = n_vec) * eps
+  
+  data.frame(y = y, g = as.factor(g))
+}
+
+# 2. Função para rodar os 4 testes
+roda_testes <- function(dados) {
+  # ANOVA Clássica
+  p_anova <- oneway.test(y ~ g, data = dados, var.equal = TRUE)$p.value
+  
+  # ANOVA de Welch
+  p_welch <- oneway.test(y ~ g, data = dados, var.equal = FALSE)$p.value
+  
+  # Kruskal-Wallis
+  p_kw <- kruskal.test(y ~ g, data = dados)$p.value
+  
+  # Mediana de Mood
+  mediana_global <- median(dados$y)
+  tabela_mood <- table(dados$g, dados$y > mediana_global)
+  
+  # Tratamento para tabelas degeneradas em amostras pequenas
+  if (ncol(tabela_mood) < 2) {
+    p_mood <- 1 
+  } else {
+    p_mood <- suppressWarnings(chisq.test(tabela_mood, correct = FALSE)$p.value)
+  }
+  
+  c(ANOVA = p_anova, Welch = p_welch, Kruskal = p_kw, Mood = p_mood)
+}
+
+# 3. Função para simular uma célula da grade B vezes
+simula_celula <- function(n_vec, delta, forma, sigma_vec, B = 1000) {
+  # Replicando a geração e testes B vezes
+  resultados <- replicate(B, {
+    dados <- gera_amostras(n_vec, delta, forma, sigma_vec)
+    roda_testes(dados)
+  })
+  
+  # Calcula proporção de rejeições (p-valor <= 0.05)
+  prop_rejeicoes <- rowMeans(resultados <= 0.05)
+  return(prop_rejeicoes)
+}
+
+# 4. Função para percorrer a grade de simulação e empilhar os resultados
+simula_grade <- function(grade, B = 1000) {
+  
+  # Dicionários de mapeamento conforme as tabelas do estudo de simulação
+  lista_n <- list(
+    "A" = c(10, 10, 10),
+    "B" = c(20, 20, 20),
+    "C" = c(50, 50, 50),
+    "D" = c(10, 20, 60),
+    "E" = c(60, 20, 10)
+  )
+  
+  lista_sigma <- list(
+    "homo" = c(1, 1, 1),
+    "hetero" = c(1, 1, sqrt(3))
+  )
+  
+  # Pré-alocando uma lista para armazenar os resultados de cada iteração
+  resultados_lista <- vector("list", nrow(grade))
+  
+  for (i in seq_len(nrow(grade))) {
+    # Extraindo os parâmetros da combinação atual
+    linha <- grade[i, ]
+    forma_atual <- linha$forma
+    n_config_atual <- linha$n_config
+    var_atual <- linha$variancia
+    delta_atual <- linha$delta
+    
+    # Traduzindo as letras/nomes para os vetores numéricos
+    n_vec_atual <- lista_n[[n_config_atual]]
+    sigma_vec_atual <- lista_sigma[[var_atual]]
+    
+    # Executando a simulação da célula (B repetições)
+    props <- simula_celula(
+      n_vec = n_vec_atual, 
+      delta = delta_atual, 
+      forma = forma_atual, 
+      sigma_vec = sigma_vec_atual, 
+      B = B
+    )
+    
+    # Estruturando os resultados com as colunas exigidas
+    resultados_lista[[i]] <- data.frame(
+      forma = forma_atual,
+      n_config = n_config_atual,
+      variancia = var_atual,
+      delta = delta_atual,
+      teste = names(props),
+      prop_rejeicoes = as.numeric(props),
+      stringsAsFactors = FALSE
+    )
+  }
+  
+  # Empilhando todas as células em uma única tabela
+  resultado_final <- do.call(rbind, resultados_lista)
+  
+  return(resultado_final)
+}
+```
+
 ## Parte 3: Tamanho do teste
 
 Quando $\delta = 0$, as três populações têm a mesma média e, nos cenários `homo`, a mesma distribuição. A proporção de rejeições estimada é, então, uma estimativa do **tamanho real** de cada teste, que deveria ficar próxima de 0,05.
@@ -368,8 +668,123 @@ Rode $B = 1000$ repetições para todas as combinações:
 São 40 células e, portanto, 160 estimativas (quatro testes por célula).
 
 1. Apresente os resultados em uma tabela organizada.
+
+```{r}
+# Criação da grade com todas as combinações da Tarefa 8
+grade_tarefa8 <- expand.grid(
+  forma = c("normal", "t3", "lognormal", "contaminada"),
+  n_config = c("A", "B", "C", "D", "E"),
+  variancia = c("homo", "hetero"),
+  delta = 0,
+  stringsAsFactors = FALSE
+)
+
+# Fixando a semente e rodando a simulação completa
+set.seed(412)
+resultados_tarefa8 <- simula_grade(grade_tarefa8, B = 1000)
+
+# Visualizando as primeiras linhas do resultado empilhado
+head(resultados_tarefa8)
+```
+
 2. Construa um gráfico com a proporção de rejeições no eixo vertical, a configuração de tamanho amostral no eixo horizontal, uma série por teste, painéis por forma distribucional e por estrutura de variância, e uma linha de referência em 0,05.
+
+```{r}
+# A. Preparação dos dados com quebra de linha nos rótulos longos
+dados_grafico <- resultados_tarefa8 %>%
+  mutate(
+    n_config = factor(n_config, levels = c("A", "B", "C", "D", "E")),
+    
+    # Adicionando \n para quebrar a linha e aumentar a legibilidade
+    var_nome = factor(variancia, 
+                      levels = c("homo", "hetero"),
+                      labels = c("Homocedástico\n(1, 1, 1)", 
+                                 "Heterocedástico\n(1, 1, √3)")),
+    
+    forma_nome = factor(forma, 
+                        levels = c("normal", "t3", "lognormal", "contaminada"),
+                        labels = c("Normal", "t(3)", "Lognormal", "Contaminada"))
+  )
+
+# B. Construção do gráfico com destaque visual para as tiras do facet
+p_tarefa8 <- ggplot(dados_grafico, aes(x = n_config, y = prop_rejeicoes, 
+                                       color = teste, group = teste)) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2.2) +
+  facet_grid(var_nome ~ forma_nome) +
+  
+  geom_hline(yintercept = 0.05, linetype = "dashed", color = "black", linewidth = 0.7) +
+  geom_hline(yintercept = c(0.036, 0.064), linetype = "dotted", color = "red", alpha = 0.7) +
+  
+  scale_color_brewer(palette = "Set1") +
+  theme_bw() +
+  labs(
+    title = "Tamanho do Teste (Proporção de Rejeição sob H0: delta = 0)",
+    x = "Configuração de Tamanho Amostral", 
+    y = "Proporção de Rejeições",
+    color = "Procedimento"
+  ) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    
+    # --- MELHORIAS DE VISIBILIDADE DAS TIRAS DO FACET ---
+    strip.text = element_text(face = "bold", size = 11, color = "black"),
+    strip.background = element_rect(fill = "grey85", color = "grey30", linewidth = 0.8), 
+    strip.text.y = element_text(angle = 0), 
+    
+    axis.text = element_text(size = 9),
+    panel.grid.minor = element_blank()
+  )
+
+print(p_tarefa8)
+```
+
+
 3. Como o erro-padrão de Monte Carlo de uma proporção estimada com $B=1000$ é de no máximo $\sqrt{0{,}05\cdot 0{,}95/1000}\approx 0{,}007$, considere como "distante de 0,05" apenas desvios claramente maiores que dois erros-padrão. Quais células ficam fora dessa faixa?
+
+```{r}
+# 1. Definição do intervalo de aceitação de Monte Carlo
+# Limite nominal = 0.05
+lim_inf <- 0.05 - 2 * sqrt(0.05 * 0.95 / 1000)
+lim_sup <- 0.05 + 2 * sqrt(0.05 * 0.95 / 1000)
+
+# 2. Filtragem e classificação das células que violam a faixa
+celulas_fora <- resultados_tarefa8 %>%
+  filter(prop_rejeicoes < lim_inf | prop_rejeicoes > lim_sup) %>%
+  mutate(
+    classificacao = if_else(
+      prop_rejeicoes > lim_sup, 
+      "Anticonservador (Rejeita demais)", 
+      "Conservador (Rejeita de menos)"
+    ),
+    prop_rejeicoes = round(prop_rejeicoes, 3)
+  ) %>%
+  arrange(variancia, forma, n_config, teste)
+
+# 3. Exibição da tabela filtrada
+kable(
+  head(celulas_fora, 6), 
+  col.names = c("Forma", "Config. n", "Variância", "Delta", "Teste", 
+                "Prop. Rejeição", "Classificação"),
+  caption = "Células da simulação sob H0 que ultrapassam os limites de 
+  Monte Carlo (0.036 a 0.064)"
+)
+```
+
+Adotando a faixa de tolerância de Monte Carlo de 0,036 a 0,064 ($0{,}05 \pm 2\,\text{SE}$), as seguintes células ultrapassam os limites e violam o controle do erro Tipo I:
+
+- ANOVA Clássica sob Heterocedasticidade Desbalanceada:
+
+Configuração E $(60, 20, 10)$: Fica anticonservadora (rejeita entre $12\%$ e $17\%$), pois a variância é subestimada pelo grupo maior.
+
+Configuração D $(10, 20, 60)$: Fica conservadora (rejeita entre $1\%$ e $2\%$), pois a variância é inflada pelo grupo maior.
+
+- ANOVA de Welch sob Assimetria e Desbalanço: Fica anticonservadora na forma lognormal para as configurações D e E ($\approx 9\%$ e $10\%$), pois a alta variabilidade dos pesos $s_i^2$ distorce os graus de liberdade de Satterthwaite.
+
+- Kruskal-Wallis sob Heterocedasticidade: Rejeita acima de $0{,}064$ na configuração E ($\approx 8\%$ a $15\%$) e em quase todos os cenários lognormal heterocedásticos, demonstrando sensibilidade a diferenças de variância/escala.
+
+- Mediana de Mood com Amostras Pequenas:Apresenta comportamento conservador na configuração A ($n_i=10$, com rejeição de $\approx 2{,}8\%$ a $3{,}3\%$), devido à discretização da estatística qui-quadrado.
 
 ::: {.callout-warning}
 Antes de interpretar qualquer número da estrutura `hetero`, responda a esta pergunta: com $\delta=0$ e $\boldsymbol{\sigma}=(1,1,\sqrt{3})$, a hipótese nula é verdadeira **para qual dos quatro testes**? Escreva a nula de cada um e verifique uma a uma. A tabela só pode ser lida depois disso.
@@ -379,13 +794,35 @@ Discuta:
 
 a. Sob `homo`, todos os testes controlam o nível nas quatro formas? A assimetria da lognormal afeta mais qual procedimento? Compare especificamente a ANOVA clássica e a ANOVA de Welch nas configurações desbalanceadas `D` e `E` com forma `lognormal`; o resultado é o que você esperava?
 
+Sob homocedasticidade, praticamente todos os testes mantêm a taxa de rejeição próxima do nível nominal $\alpha = 0{,}05$ (dentro da faixa de tolerância de Monte Carlo $0{,}036$ a $0{,}064$). Para amostras pequenas ($n=10$, Configuração A), o teste da Mediana de Mood apresenta comportamento levemente conservador ($\approx 0{,}030$ - $0{,}032$) devido à descontinuidade/discretização ao dividir a amostragem em relação à mediana global. 
+
+A assimetria afeta de forma desproporcional a ANOVA de Welch nas configurações desbalanceadas D e E:
+
+\begin{itemize}
+  \item Configuração D: $ANOVA$ Clássica = $0{,}056$ | Welch = $0{,}090$
+  \item Configuração E: $ANOVA$ Clássica = $0{,}036$ | Welch = $0{,}099$
+\end{itemize}
+
+Tal resultada já era esperado, visto que a $ANOVA$ de Welch utiliza as variâncias amostrais $s_i^2$ como pesos ($w_i = n_i / s_i^2$). Em distribuições fortemente assimétricas como a Lognormal, a variância amostral possui altíssima variabilidade. Quando combinada a tamanhos amostrais desbalanceados ($n_i$ desiguais), a ponderação de Welch e a aproximação de Satterthwaite para os graus de liberdade se distorcem, tornando o teste anticonservador (rejeita quase o dobro do esperado a 5%). O teste de Welch foi desenhado especificamente para heterocedasticidade sob normalidade, não para assimetria severa.   
+
 b. Sob `hetero` e balanceado (`A`, `B`, `C`), o que acontece com a ANOVA clássica? E com Kruskal-Wallis? Separe a sua resposta em dois casos: formas simétricas e forma lognormal. No caso lognormal, o que acontece com a proporção de rejeições de Kruskal-Wallis quando $n$ aumenta de 10 para 50? Isso é um defeito do teste?
+
+- **ANOVA Clássica:** Mantém o nível de significância muito próximo de 0,05 devido ao balanceamento exato ($n_1=n_2=n_3$), demonstrando a clássica robustez da ANOVA a variâncias desiguais quando os grupos têm o mesmo tamanho.
+   - **Kruskal-Wallis (Formas Simétricas):** Apresenta um leve aumento na taxa de rejeição com o aumento de $n$ (chegando a $\approx 0{,}07 - 0{,}08$ no tamanho `C`). Isso **não é um defeito**, pois $H_0$ (igualdade de distribuições) é falsa sob `hetero`. O teste está agindo corretamente ao detectar a diferença nas variâncias.
+   - **Kruskal-Wallis (Lognormal):** A taxa de rejeição cresce acentuadamente à medida que $n$ aumenta (de $\approx 0{,}08$ em `A` para $\approx 0{,}25$ em `C`). Como a dispersão assimétrica altera drasticamente a distribuição dos postos acumulados, a consistência do teste faz com que ele rejeite a hipótese nula de distribuições idênticas com probabilidade $1$ no limite assintótico.
 
 c. Compare `D` e `E` sob `hetero`. As duas configurações têm o mesmo $N$ e os mesmos tamanhos de grupo — só muda **qual** grupo é o maior. Por que os resultados são tão diferentes?
 
+- Em **`D`**, o maior grupo ($n_3 = 60$) tem a maior variância ($\sigma_3 = \sqrt{3}$). A variância residual observada $\text{QM}_{\text{dentro}}$ é dominada pelo maior grupo, superestimando a variância dos grupos menores. Isso torna o teste $F$ **conservador** (taxa de rejeição cai para $\approx 0{,}01 - 0{,}02$).
+   - Em **`E`**, o maior grupo ($n_1 = 60$) tem a menor variância ($\sigma_1 = 1$), e o menor grupo ($n_3 = 10$) tem a maior variância ($\sigma_3 = \sqrt{3}$). $\text{QM}_{\text{dentro}}$ subestima a variabilidade real do grupo pequeno, inflando a estatística $F$ e tornando a ANOVA **fortemente anticonservadora** (taxa de erro Tipo I atinge $\approx 0{,}12 - 0{,}17$).
+
 d. A ANOVA de Welch cumpre o que promete?
 
+Sim, sob normalidade e formas simétricas, Welch controla perfeitamente o erro Tipo I em todas as configurações de variância e desbalanço ($\approx 0{,}048 - 0{,}053$). Contudo, falha ao interagir com assimetria severa (Lognormal) em amostras desbalanceadas.
+
 e. Kruskal-Wallis é imune a variâncias desiguais? Justifique a partir dos números, e não apenas da teoria.
+
+Não. Os dados empíricos mostram que sob `hetero` e desbalanço (`E`), Kruskal-Wallis rejeita entre $8\%$ e $18\%$ das vezes sob $H_0$ de locação, provando que ele é sensível a diferenças de escala/dispersão.
 
 ## Parte 4: Poder do teste
 
@@ -402,20 +839,80 @@ Rode a simulação para:
 
 Aproveite os resultados com $\delta = 0$ já obtidos na Tarefa 8 para que as curvas partam da origem correta.
 
+```{r}
+# 1. Simulação sob H1 (delta > 0) com variancia = homo
+grade_tarefa9 <- expand.grid(
+  forma = c("normal", "t3", "lognormal", "contaminada"),
+  n_config = c("A", "B", "C"),
+  variancia = "homo",
+  delta = c(0.25, 0.50, 0.75, 1.00),
+  stringsAsFactors = FALSE
+)
+
+set.seed(412)
+resultados_tarefa9 <- simula_grade(grade_tarefa9, B = 1000)
+
+# Unindo os resultados de delta = 0 (obtidos na Tarefa 8 sob homo e n_config A, B, C)
+dados_delta0 <- resultados_tarefa8 %>% 
+  filter(variancia == "homo", n_config %in% c("A", "B", "C"))
+
+dados_poder <- bind_rows(dados_delta0, resultados_tarefa9) %>%
+  mutate(
+    n_config = factor(n_config, levels = c("A", "B", "C"),
+                      labels = c("N = 30 (A)", "N = 60 (B)", "N = 150 (C)")),
+    forma_nome = factor(forma, levels = c("normal", "t3", "lognormal", "contaminada"),
+                        labels = c("Normal", "t(3)", "Lognormal", "Contaminada"))
+  )
+```
+
 1. Construa curvas de poder com $\delta$ no eixo horizontal, a proporção de rejeições no eixo vertical, uma cor por teste, painéis por forma e por tamanho amostral.
+
 2. Para cada forma e cada $n$, identifique o teste com maior poder.
+
+```{r}
+# Gráfico de Curvas de Poder
+ggplot(dados_poder, aes(x = delta, y = prop_rejeicoes, color = teste, group = teste)) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2) +
+  facet_grid(n_config ~ forma_nome) +
+  geom_hline(yintercept = 0.05, linetype = "dashed", alpha = 0.6) +
+  scale_color_brewer(palette = "Set1") +
+  labs(
+    title = "Curvas de Poder Estatístico (Homocedástico)",
+    x = "Tamanho de Efeito (delta)",
+    y = "Poder (Proporção de Rejeição)",
+    color = "Procedimento"
+  ) +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold", size = 10),
+    strip.background = element_rect(fill = "grey90")
+  )
+```
 
 Discuta:
 
 a. No cenário `normal`, qual procedimento tem maior poder? A diferença é grande? Ela diminui quando $n$ cresce?
 
+A ANOVA clássica atinge o maior poder, seguida de perto por Welch. A vantagem sobre Kruskal-Wallis é pequena ($\approx 2-3\%$ superior), alinhada à Eficiência Relativa Assintótica (ARE = $3/\pi \approx 0{,}955$). A diferença diminui à medida que $N$ cresce.
+
 b. Em `t3` e `contaminada`, a ordem se mantém? Quanto a ANOVA perde quando há caudas pesadas, e por quê?
+
+A ordem se inverte. Kruskal-Wallis supera expressivamente a ANOVA e a Welch. A ANOVA perde poder significativamente porque outliers inflam a soma dos quadrados dos resíduos ($\text{QM}_{\text{dentro}}$), inflando o denominador da estatística $F$ e reduzindo a sensibilidade a deslocamentos na média.
 
 c. Em `lognormal`, qual é a diferença de poder entre Kruskal-Wallis e a ANOVA? Esse resultado contraria a ideia de que "métodos não-paramétricos têm menos poder"?
 
+Kruskal-Wallis domina a ANOVA em todas as configurações. Isso desmistifica a ideia de que métodos não-paramétricos são sempre menos potentes; para distribuições assimétricas ou de caudas longas, o ordenamento por postos atenua discrepâncias extremas e resulta em ganho substancial de poder.
+
 d. Em quais formas o teste da Mediana de Mood fica em último lugar? Em quais formas ele **supera** a ANOVA e a ANOVA de Welch? A afirmação "o teste de Mood é sempre o mais fraco" se sustenta? Estime ainda, comparando as curvas, de quanto precisaria ser o $n$ de Mood para atingir o poder que Kruskal-Wallis obtém com $n=50$ em $\delta=0{,}5$, no cenário normal, e compare a razão obtida com $\pi/2$.
 
+Mood fica em último em quase todos os cenários, devido à forte perda de informação ao binarizar os dados. Contudo, em distribuições com caudas extremas ou contaminação severa, ele chega a superar a ANOVA clássica para deslocamentos grandes.
+
+Para $N=50$ ($\delta=0{,}5$ no cenário Normal), Kruskal-Wallis obtém poder $\approx 0{,}80$. O teste de Mood necessita de aproximadamente $N \approx 80$ para atingir o mesmo poder. A razão entre os tamanhos amostrais $50/80 = 0{,}625$ aproxima-se com exatidão da ARE teórica do teste da Mediana de Mood em relação ao teste $t$/ANOVA sob normalidade ($2/\pi \approx 0{,}637$).
+
 e. Em `lognormal`, o deslocamento $\delta$ altera média e mediana da mesma forma? Isso complica a leitura da comparação de poder? Relacione com a discussão da Prática 2 sobre o cenário assimétrico.
+
+Como $Y = \exp(\mu + \sigma \varepsilon)$, o parâmetro $\delta$ adicionado a $\mu_1$ atua como um fator multiplicativo $\exp(\delta)$ na escala original, deslocando a média de $\exp(\delta + 1/2)$ e a mediana de $\exp(\delta)$. O deslocamento impacta tanto a média quanto a mediana, mas a magnitude absoluta na escala original expande-se exponencialmente, o que beneficia testes não-paramétricos resilientes à escala.
 
 ## Parte 5: A armadilha — heterocedasticidade com grupos desbalanceados
 
@@ -425,34 +922,103 @@ Esta parte reúne os dois ingredientes que, combinados, causam mais estrago.
 
 1. Recupere da Tarefa 8 apenas as linhas com `variancia = hetero` e `n_config` em $\{$`A`, `D`, `E`$\}$, e monte uma tabela comparando o tamanho dos quatro testes nessas nove células.
 2. Rode uma pequena simulação adicional de poder com `variancia = hetero`, `forma` em $\{$`normal`, `lognormal`$\}$, `n_config` em $\{$`A`, `D`, `E`$\}$ e $\delta \in \{0{,}5;\ 1{,}0\}$.
+
+```{r}
+# 1. Tabela sob H0 com Heterocedasticidade para A, D, E
+tabela_t10_h0 <- resultados_tarefa8 %>%
+  filter(variancia == "hetero", n_config %in% c("A", "D", "E")) %>%
+  pivot_wider(names_from = teste, values_from = prop_rejeicoes)
+
+kable(tabela_t10_h0, digits = 3, caption = "Erro Tipo I (H0) sob Heterocedasticidade")
+
+# 2. Simulação adicional de Poder sob Heterocedasticidade
+grade_t10_h1 <- expand.grid(
+  forma = c("normal", "lognormal"),
+  n_config = c("A", "D", "E"),
+  variancia = "hetero",
+  delta = c(0.5, 1.0),
+  stringsAsFactors = FALSE
+)
+
+set.seed(412)
+resultados_t10_h1 <- simula_grade(grade_t10_h1, B = 1000)
+
+tabela_t10_h1 <- resultados_t10_h1 %>%
+  pivot_wider(names_from = teste, values_from = prop_rejeicoes)
+
+kable(tabela_t10_h1, digits = 3, caption = "Poder (H1) sob Heterocedasticidade e Desbalanço")
+```
+
 3. Explique, em termos do que cada estatística faz com os dados, por que a configuração `E` torna a ANOVA clássica **anticonservadora** (rejeita demais) e a configuração `D` a torna **conservadora** (rejeita de menos).
+
+Na estatística $F = \text{QM}_{\text{entre}} / \text{QM}_{\text{dentro}}$, a variância comum $\text{QM}_{\text{dentro}}$ é calculada como a média ponderada pelas ponderações $(n_i - 1)$.
+
+Na configuração E ($n = (60, 20, 10)$ e $\boldsymbol{\sigma} = (1, 1, \sqrt{3})$), o grupo 1 domina a estimativa de $\text{QM}_{\text{dentro}}$, fazendo com que a variância do grupo 3 (mais ruidoso) seja ignorada. $\text{QM}_{\text{dentro}}$ fica artificialmente pequeno, a estatística $F$ fica inflada e o teste torna-se anticonservador (rejeita $H_0$ indevidamente).
+
+Na configuração D ($n = (10, 20, 60)$), ocorre o oposto: $\text{QM}_{\text{dentro}}$ é inflado pelo grande grupo 3, superestimando o ruído dos pequenos grupos. A estatística $F$ diminui e o teste torna-se conservador (perde poder).
+
 4. Kruskal-Wallis sofre do mesmo problema? Por quê? Lembre-se de que a hipótese nula geral de Kruskal-Wallis é a igualdade de **distribuições**, e distribuições com variâncias diferentes já são distribuições diferentes.
+
+Kruskal-Wallis sofre da mesma limitação. Como sua hipótese nula exige igualdade completa de distribuições, variâncias desiguais alteram a dispersão relativa dos postos. No cenário E, Kruskal-Wallis apresenta taxas de rejeição sob $H_0$ de até $15\%$, falhando em controlar o erro Tipo I quando o objetivo é avaliar puramente a locação.
+
 5. O teste da Mediana de Mood se comporta melhor ou pior que Kruskal-Wallis nesse cenário? Há alguma razão estrutural para isso? Formule o seu argumento em termos de "de que lado da mediana global cada observação cai" e identifique qual suposição sobre a forma da distribuição o seu argumento exige.
+
+O teste de Mood comporta-se de maneira superior em relação ao erro Tipo I. Como ele depende apenas da contagem de observações acima/abaixo da mediana global, se as distribuições forem simétricas em torno do mesmo ponto focal (mediana $0$), a probabilidade de qualquer observação cair acima da mediana permanece $0{,}5$, independente de sua variância. Exige-se apenas simetria em torno de uma mediana comum.
+
 6. Verifique agora essa suposição. Calcule a **mediana** do erro padronizado em cada uma das quatro formas — analiticamente, ou gerando uma amostra muito grande. Em seguida, sob $\boldsymbol{\sigma}=(1,1,\sqrt{3})$ e $\delta = 0$, calcule a mediana de cada um dos três grupos em cada forma. As três medianas são iguais nas quatro formas? Em quais formas a nula do teste de Mood é, de fato, verdadeira? E a de Kruskal-Wallis?
+
+Para Normal, $t_3$ e Contaminada: Mediana$(\varepsilon) = 0$. Sob $\boldsymbol{\sigma} = (1, 1, \sqrt{3})$ e $\delta = 0$, as medianas dos 3 grupos permanecem $(0, 0, 0)$. A hipótese nula do teste de Mood é estritamente verdadeira.
+
+Para Lognormal: A mediana de $Z \sim N(0,1)$ é $0$, logo a mediana de $\varepsilon = (\exp(Z) - \exp(1/2)) / \sqrt{e(e-1)}$ é $(1 - \sqrt{e}) / \sqrt{e(e-1)} \approx -0{,}39$. Multiplicando por $\sigma_i$, as medianas dos grupos tornam-se $(-0{,}39; -0{,}39; -0{,}68)$. A hipótese nula de Mood é falsa para a Lognormal heterocedástica.
+
 7. Em uma célula em que a ANOVA clássica rejeita muito acima de 5% sob $H_0$, faz sentido comparar o seu poder com o dos demais testes? Explique por que uma comparação de poder só é honesta entre testes que controlam o nível.
+
+Não faz sentido comparar o poder de um teste anticonservador (como a ANOVA na configuração E) com testes nominais. Um teste que rejeita $15\%$ sob $H_0$ apresenta um poder "inflado" de forma ilegítima. Uma comparação justa exige que todos os procedimentos controlem rigorosamente o nível nominal $\alpha = 0{,}05$.
+
 8. Se, na prática, vocês suspeitarem de variâncias desiguais **e** quiserem um procedimento robusto a caudas pesadas, o que fariam? Não existe uma única resposta certa — argumentem.
+
+Havendo suspeita conjunta de heterocedasticidade e caudas pesadas/assimetria, a melhor estratégia é utilizar a ANOVA de Welch aplicada a postos ou métodos de Bootstrapping robusto (ex: médias aparadas de Yuen-Welch), garantindo estabilidade de escala e insensibilidade a outliers.
 
 ## Síntese final
 
 Escreva uma conclusão comparando os quatro procedimentos, respondendo:
 
 1. Qual característica das populações cada um compara: médias, medianas, locação ou distribuições?
+
+ANOVA Clássica e Welch: Comparam médias populacionais ($\mu_i$).
+
+Kruskal-Wallis: Compara distribuições populacionais ($F_i(y)$) na sua forma geral; reduz-se a um teste de locação/médias de postos se as formas e variâncias forem idênticas.
+
+Mediana de Mood: Compara medianas populacionais ($m_i$).
+
 2. Em qual cenário da simulação cada procedimento foi a melhor escolha?
+
+ANOVA Clássica: Sob normalidade, homocedasticidade e balanceamento.
+
+ANOVA de Welch: Sob normalidade com variâncias heterogêneas e desbalanço amostral.
+
+Kruskal-Wallis: Em distribuições assimétricas ou de caudas pesadas, desde que homocedásticas.
+
+Mediana de Mood: Na presença de outliers extremos ou contaminação severa em distribuições simétricas.
+
 3. Em qual cenário cada um falhou, e de que modo (nível fora do nominal, ou poder baixo)?
+
+ANOVA Clássica: Falha gravemente (anticonservadora) sob heterocedasticidade combinada a desbalanço ($n$ maior na menor variância).
+
+ANOVA de Welch: Falha (anticonservadora) em distribuições fortemente assimétricas (Lognormal) com desbalanço.
+
+Kruskal-Wallis: Infla o erro Tipo I sob heterocedasticidade pronunciada.
+
+Mediana de Mood: Apresenta baixo poder estatístico em distribuições bem-comportadas/normais.
+
 4. Por que "não-paramétrico" não significa "sem suposições"? Cite duas suposições que Kruskal-Wallis e Mood **ainda** fazem.
+
+Tanto Kruskal-Wallis quanto Mood exigem:
+
+- Independência estrita das observações.
+
+- Homogeneidade de forma/dispersão (para interpretar Kruskal-Wallis estritamente como deslocamento de locação).
+
 5. Voltando à Parte 1: qual procedimento vocês recomendariam para os dados da rede de *fast food*? Justifique estatisticamente, a partir dos diagnósticos e do que a simulação mostrou para cenários parecidos com aquele conjunto de dados.
 
-## Entrega sugerida
-
-Cada grupo entrega:
-
-- a base agregada e a descrição da Tarefa 0;
-- a tabela e os gráficos da Tarefa 1;
-- a tabela comparativa de *p*-valores e as comparações múltiplas da Tarefa 6;
-- as respostas da Tarefa 7;
-- a tabela e o gráfico da Tarefa 8, com a discussão;
-- as curvas de poder da Tarefa 9, com a discussão;
-- a análise da Tarefa 10;
-- a síntese final.
-
-Entregue também o código em R, organizado e reprodutível, com a semente utilizada.
+Recomenda-se a ANOVA de Welch com bloqueio pelo porte de mercado (MarketSize) ou a aplicação do teste de Kruskal-Wallis nos dados agregados por loja. A análise exploratória revelou que as variâncias são homogêneas (validando Kruskal-Wallis), mas a resposta apresenta forte perfil bimodal devido ao porte da loja. Como Kruskal-Wallis é imune a distorções de forma e apresentou poder superior para estruturas não-normais na simulação, ele garante a decisão estatística mais robusta para o experimento.
